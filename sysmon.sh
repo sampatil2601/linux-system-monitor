@@ -1,0 +1,262 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly PROGRAM_NAME="sysmon"
+readonly VERSION="1.0.0"
+
+print_version(){
+       	printf '%s  version  %s\n' "$PROGRAM_NAME" "$VERSION"
+}
+
+print_help(){
+	cat<<'EOF'
+Linux System Health Monitor
+
+Usage:
+	./sysmon.sh [OPTIONS]
+
+Options:
+	--all			Show a complete system health report
+	--cpu			Show CPU information and utilization
+	--memory		Show memory usage
+	--disk			Show filesystem/disk usage
+	--processes		Show top processes by CPU/memory
+	--network [HOST]	Show network information and connectivity
+	--services		Show status of important systemd services
+	--uptime		Show system uptime and load average
+
+	--help			Display the help message
+	--version		Display program version
+
+Threshold options:
+	--cpu-threshold N
+	--memory-threshold N
+	--disk-threshold N
+
+Logging:
+	--log			Enable logging
+	--log-file FILE		Specify log file
+
+Examples:
+
+	./sysmon.sh --help
+	./sysmon.sh --version
+	./sysmon.sh --cpu
+	./sysmon.sh --memory
+	./sysmon.sh --all
+	./sysmon.sh --network google.com
+
+Exit codes:
+	0	Success
+	1	General error
+	2	Invalid command-line usage
+EOF
+}
+
+error(){
+	printf 'Error: %s\n' "$*" >&2
+}
+
+get_cpu_model(){
+	local model=""
+
+	while IFS=: read -r key value; do
+		if [[ "$key" == "model name" || "$key" == "Model" ]]; then
+			value="${value#"${value%%[![:space: ]]*}"}"
+			model="$value"
+			break
+		fi
+	done < /proc/cpuinfo
+
+	if [[ -z "$model" ]]; then
+		printf 'Unknown\n'
+		return 0;
+	fi
+
+	printf '%s\n' "$model"
+
+}
+
+get_logical_cpu_count(){
+	local count=0
+
+	while IFS= read -r line; do
+		if [[ "$line" == processor* ]]; then
+			((++count))
+		fi
+	done < /proc/cpuinfo
+
+	if (( count == 0 )); then
+		error "Unable to determine logical CPU count."
+		return 1
+	fi
+
+	printf '%d\n' "$count"
+
+}
+
+read_cpu_counters(){
+local line
+
+if ! IFS= read -r line < /proc/stat; then
+	error "Unable to read /proc/stat."
+	return 1
+fi
+
+read -r cpu user nice system idle iowait irq softirq steal _ _ <<< "$line"
+
+if [[ "$cpu" != "cpu" ]]; then
+	error "Unexpected format in proc/stat."
+	return 1
+fi
+
+if [[ -z "${steal:-}" ]]; then
+	steal=0
+
+fi
+
+printf '%s %s %s %s %s %s %s %s %s\n' \
+	"$user" \
+	"$nice" \
+	"$system" \
+	"$idle" \
+	"$iowait" \
+	"$irq" \
+	"$softirq" \
+	"$steal"
+
+}
+
+calculate_cpu_utilization(){
+	local user1="$1"
+	local nice1="$2"
+	local system1="$3"
+	local idle1="$4"
+	local iowait1="$5"
+	local irq1="$6"
+	local softirq1="$7"
+	local steal1="$8"
+
+	local user2="$9"
+	local nice2="${10}"
+	local system2="${11}"
+	local idle2="${12}"
+	local iowait2="${13}"
+	local irq2="${14}"
+	local softirq2="${15}"
+	local steal2="${16}"
+
+	local total1 total2
+	local idle_total1 idle_total2
+	local total_delta idle_delta busy_delta
+	local utilization tenths
+
+	total1=$((user1 + nice1 + system1 + idle1 + iowait1 + irq1 + softirq1 + steal1))
+	total2=$((user2 + nice2 + system2 + idle2 + iowait2 + irq2 + softirq2 + steal2))
+
+	idle_total1=$((idle1 + iowait1))
+	idle_total2=$((idle2 + iowait2))
+
+	total_delta=$((total2 - total1))
+	idle_delta=$((idle_total2 - idle_total1))
+	busy_delta=$((total_delta - idle_delta))
+
+	if (( total_delta <= 0 || busy_delta < 0 )); then
+		error "Unable to calculate cpu utilization"
+		return 1
+	fi
+
+	utilization_tenths=$((busy_delta * 1000 / total_delta))
+
+	printf '%d.%d%%\n' \
+	"$((utilization_tenths / 10))" \
+	"$((utilization_tenths % 10))"
+}
+
+
+get_load_average(){
+
+	local load1 load5 load15
+
+	if ! read -r load1 load5 load15 _ < /proc/loadavg; then
+		error "Unable to read /proc/loadavg."
+		return 1
+	fi
+
+	printf '%s %s %s\n' "$load1" "$load5" "$load15"
+
+}
+
+
+show_cpu(){
+
+	local model
+	local logical_cpus
+	local first
+	local second
+	local utilization
+	local load1 load5 load15
+
+	model=$(get_cpu_model)
+	logical_cpus=$(get_logical_cpu_count)
+
+	first=$(read_cpu_counters)
+
+	sleep 1
+
+	second=$(read_cpu_counters)
+
+	#shellcheck disable=SC2086
+	utilization=$(calculate_cpu_utilization $first $second)
+
+	read -r load1 load5 load15 <<< "$(get_load_average)"
+
+	printf '\nCPU Information\n'
+	printf '%s\n' '----------------'
+	printf 'Model			: %s\n' "$model"
+	printf 'Logical CPUs		: %s\n' "$logical_cpus"
+	printf 'CPU Utilization		: %s\n' "$utilization"
+	printf 'Load Average		: %s %s %s\n' "$load1" "$load5" "$load15"
+
+}
+
+
+
+
+
+main(){
+
+	if [[ $# -eq 0 ]]; then
+	   print_help
+	   return 0
+	fi
+
+	case "$1" in
+	    --help)
+	    print_help
+	    ;;
+
+	    --version)
+	    print_version
+	    ;;
+
+	    --cpu)
+	    show_cpu
+	    ;;
+
+	    --all|--memory|--network|--disk|--processes|--services|--uptime)
+	    error "The '$1' feature will be implemented in  a later stage."
+	    return 0
+	    ;;
+
+	    *)
+	     error "Unknown option: $1"
+	     printf 'Use --help for usage information.\n' >&2
+	     return 2
+	     ;;
+
+       	 esac
+}
+
+main "$@"

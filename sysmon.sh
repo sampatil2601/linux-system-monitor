@@ -288,6 +288,28 @@ get_disk_info() {
 }
 
 
+get_process_info() {
+    printf '%s\n' "Process Information"
+    printf '%s\n' "-------------------"
+    printf '\n'
+
+    printf '%s\n' "Top CPU Processes"
+    printf '%s\n' "-----------------"
+
+    ps -eo pid,pcpu,pmem,comm --sort=-pcpu | head -6
+
+    printf '\n'
+
+    printf '%s\n' "Top Memory Processes"
+    printf '%s\n' "--------------------"
+
+    ps -eo pid,pcpu,pmem,comm --sort=-pmem | head -6
+}
+
+
+
+
+
 
 main(){
 
@@ -317,7 +339,11 @@ main(){
 	    get_disk_info
 	    ;;
 
-	    --all|--network|--processes|--services|--uptime)
+	    --processes)
+	    get_process_info
+	    ;;
+
+	    --all|--network|--services|--uptime)
 	    error "The '$1' feature will be implemented in  a later stage."
 	    return 0
 	    ;;

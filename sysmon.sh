@@ -329,6 +329,32 @@ get_network_info() {
 }
 
 
+get_service_info() {
+    local service
+    local state
+    local services=("ssh" "cron")
+
+    printf '%s\n' "Service Information"
+    printf '%s\n' "-------------------"
+
+    if ! command -v systemctl >/dev/null 2>&1; then
+        error "systemctl is not available on this system."
+        return 1
+    fi
+
+    for service in "${services[@]}"; do
+        state=$(systemctl is-active "$service" 2>/dev/null || true)
+
+        if [[ -z "$state" ]]; then
+            state="unknown"
+        fi
+
+        printf '%-10s: %s\n' "$service" "$state"
+    done
+}
+
+
+
 
 main(){
 
@@ -366,8 +392,12 @@ main(){
 	    get_network_info "${2:-8.8.8.8}"
 	    ;;
 
+	    --services)
+	    get_service_info
+	    ;;
 
-	    --all|--services|--uptime)
+
+	    --all|--uptime)
 	    error "The '$1' feature will be implemented in  a later stage."
 	    return 0
 	    ;;

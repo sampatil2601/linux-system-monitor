@@ -10,6 +10,8 @@ readonly DEFAULT_CPU_THRESHOLD=80
 readonly DEFAULT_MEMORY_THRESHOLD=80
 readonly DEFAULT_DISK_THRESHOLD=80
 readonly DEFAULT_NETWORK_HOST="8.8.8.8"
+readonly DEFAULT_LOG_FILE="./sysmon.log"
+readonly DEFAULT_MAX_LOG_SIZE_KB=1024
 
 readonly -a DEFAULT_SERVICES=("ssh" "cron")
 
@@ -17,6 +19,8 @@ CPU_THRESHOLD="$DEFAULT_CPU_THRESHOLD"
 MEMORY_THRESHOLD="$DEFAULT_MEMORY_THRESHOLD"
 DISK_THRESHOLD="$DEFAULT_DISK_THRESHOLD"
 NETWORK_HOST="$DEFAULT_NETWORK_HOST"
+LOG_FILE="$DEFAULT_LOG_FILE"
+MAX_LOG_SIZE_KB="$DEFAULT_MAX_LOG_SIZE_KB"
 SERVICES=("${DEFAULT_SERVICES[@]}")
 
 
@@ -236,6 +240,9 @@ show_cpu(){
         status=$(check_threshold "$utilization" "$CPU_THRESHOLD")
 
         printf 'CPU Utilization         : %s [%s]\n' "$utilization" "$status"
+	
+	log_status "CPU utilization" "$utilization" "$status"
+
 	printf 'Load Average		: %s %s %s\n' "$load1" "$load5" "$load15"
 
 }
@@ -289,6 +296,7 @@ get_memory_info() {
 
     status=$(check_threshold "$usage_percent" "$MEMORY_THRESHOLD")
     printf 'Memory Usage     : %s%% [%s]\n' "$usage_percent" "$status"
+    log_status "Memory usage" "${usage_percent}%" "$status"
 }
 
 
@@ -327,7 +335,9 @@ get_disk_info() {
     status=$(check_threshold "$usage_value" "$DISK_THRESHOLD")
 
     printf 'Usage           : %s [%s]\n' "$usage" "$status"
+    log_status "Disk usage" "$usage" "$status"
     printf 'Mount Point     : %s\n' "$mountpoint"
+
 }
 
 
@@ -364,10 +374,12 @@ get_network_info() {
 
     if ping -c 1 -W 2 "$host" >/dev/null 2>&1; then
         printf 'Connectivity    : Reachable\n'
+	log_message "INFO" "Network connectivity to $host: reachable"
         return 0
     fi
 
     printf 'Connectivity    : Unreachable\n'
+    log_message "WARNING" "Network connectivity to $host: unreachable"
     return 1
 }
 
@@ -393,6 +405,12 @@ get_service_info() {
         fi
 
         printf '%-10s: %s\n' "$service" "$state"
+ 
+	if [[ "$state" == "active" ]]; then
+        	log_message "INFO" "Service $service: active"
+    	else
+        	log_message "WARNING" "Service $service: $state"
+    	fi
     done
 }
 
@@ -426,10 +444,59 @@ load_config() {
             SERVICES)
                 read -r -a SERVICES <<< "$value"
                 ;;
+	    LOG_FILE)
+    	        LOG_FILE="$value"
+    	        ;;
+	    MAX_LOG_SIZE_KB)
+    		MAX_LOG_SIZE_KB="$value"
+    		;;
+
         esac
     done < "$config_file"
 }
 
+check_log_size() {
+    if [[ ! -f "$LOG_FILE" ]]; then
+        return 0
+    fi
+
+    local size_kb
+
+    size_kb=$(du -k "$LOG_FILE" | awk '{print $1}')
+
+    if (( size_kb >= MAX_LOG_SIZE_KB )); then
+        : > "$LOG_FILE"
+    fi
+}
+
+
+log_message() {
+    local level="$1"
+    shift
+    local message="$*"
+    local timestamp
+
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+
+    check_log_size
+
+    printf '%s [%s] %s\n' \
+        "$timestamp" \
+        "$level" \
+        "$message" >> "$LOG_FILE"
+}
+
+log_status() {
+    local component="$1"
+    local value="$2"
+    local status="$3"
+
+    if [[ "$status" == "WARNING" ]]; then
+        log_message "WARNING" "$component: $value [$status]"
+    else
+        log_message "INFO" "$component: $value [$status]"
+    fi
+}
 
 
 main(){
@@ -486,5 +553,10 @@ main(){
 
        	 esac
 }
+
 load_config
+
+log_message "INFO" "System monitor started"
+
+
 main "$@"

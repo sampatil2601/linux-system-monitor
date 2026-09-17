@@ -222,7 +222,37 @@ show_cpu(){
 }
 
 
+get_memory_info() {
+    local total_kb
+    local available_kb
+    local used_kb
+    local usage_percent
 
+    if [[ ! -r /proc/meminfo ]]; then
+        error "Cannot read /proc/meminfo."
+        return 1
+    fi
+
+    total_kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
+    available_kb=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)
+
+    if [[ -z "$total_kb" || -z "$available_kb" ]]; then
+        error "Unable to read memory information."
+        return 1
+    fi
+
+    used_kb=$((total_kb - available_kb))
+
+    usage_percent=$(awk -v used="$used_kb" -v total="$total_kb" \
+        'BEGIN { printf "%.1f", (used / total) * 100 }')
+
+    printf '%s\n' "Memory Information"
+    printf '%s\n' "------------------"
+    printf 'Total Memory     : %.2f GB\n' "$(awk -v kb="$total_kb" 'BEGIN {printf "%.2f", kb/1024/1024}')"
+    printf 'Used Memory      : %.2f GB\n' "$(awk -v kb="$used_kb" 'BEGIN {printf "%.2f", kb/1024/1024}')"
+    printf 'Available Memory : %.2f GB\n' "$(awk -v kb="$available_kb" 'BEGIN {printf "%.2f", kb/1024/1024}')"
+    printf 'Memory Usage     : %s%%\n' "$usage_percent"
+}
 
 
 main(){
@@ -245,7 +275,11 @@ main(){
 	    show_cpu
 	    ;;
 
-	    --all|--memory|--network|--disk|--processes|--services|--uptime)
+	    --memory)
+	    get_memory_info
+	    ;;
+
+	    --all|--network|--disk|--processes|--services|--uptime)
 	    error "The '$1' feature will be implemented in  a later stage."
 	    return 0
 	    ;;

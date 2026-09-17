@@ -255,6 +255,40 @@ get_memory_info() {
 }
 
 
+get_disk_info() {
+    local filesystem
+    local size
+    local used
+    local available
+    local usage
+    local mountpoint
+
+    if ! df -P / >/dev/null 2>&1; then
+        error "Unable to read disk information."
+        return 1
+    fi
+
+    read -r filesystem size used available usage mountpoint < <(
+        df -P / | awk 'NR==2'
+    )
+
+    if [[ -z "$filesystem" || -z "$mountpoint" ]]; then
+        error "Unable to parse disk information."
+        return 1
+    fi
+
+    printf '%s\n' "Disk Information"
+    printf '%s\n' "----------------"
+    printf 'Filesystem      : %s\n' "$filesystem"
+    printf 'Size            : %s\n' "$size"
+    printf 'Used            : %s\n' "$used"
+    printf 'Available       : %s\n' "$available"
+    printf 'Usage           : %s\n' "$usage"
+    printf 'Mount Point     : %s\n' "$mountpoint"
+}
+
+
+
 main(){
 
 	if [[ $# -eq 0 ]]; then
@@ -279,7 +313,11 @@ main(){
 	    get_memory_info
 	    ;;
 
-	    --all|--network|--disk|--processes|--services|--uptime)
+	    --disk)
+	    get_disk_info
+	    ;;
+
+	    --all|--network|--processes|--services|--uptime)
 	    error "The '$1' feature will be implemented in  a later stage."
 	    return 0
 	    ;;

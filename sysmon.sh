@@ -307,7 +307,26 @@ get_process_info() {
 }
 
 
+get_network_info() {
+    local host="${1:-8.8.8.8}"
 
+    if [[ -z "$host" ]]; then
+        error "Network host cannot be empty."
+        return 2
+    fi
+
+    printf '%s\n' "Network Information"
+    printf '%s\n' "-------------------"
+    printf 'Target Host     : %s\n' "$host"
+
+    if ping -c 1 -W 2 "$host" >/dev/null 2>&1; then
+        printf 'Connectivity    : Reachable\n'
+        return 0
+    fi
+
+    printf 'Connectivity    : Unreachable\n'
+    return 1
+}
 
 
 
@@ -343,7 +362,12 @@ main(){
 	    get_process_info
 	    ;;
 
-	    --all|--network|--services|--uptime)
+	    --network)
+	    get_network_info "${2:-8.8.8.8}"
+	    ;;
+
+
+	    --all|--services|--uptime)
 	    error "The '$1' feature will be implemented in  a later stage."
 	    return 0
 	    ;;

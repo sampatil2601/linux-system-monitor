@@ -361,7 +361,7 @@ get_process_info() {
 
 
 get_network_info() {
-    local host="${1:-8.8.8.8}"
+    local host="${1-8.8.8.8}"
 
     if [[ -z "$host" ]]; then
         error "Network host cannot be empty."
@@ -498,6 +498,17 @@ log_status() {
     fi
 }
 
+validate_no_extra_args() {
+    local option="$1"
+
+    if [[ $# -ne 1 ]]; then
+        error "The '$option' option does not accept additional arguments."
+        return 2
+    fi
+
+    return 0
+}
+
 
 main(){
 
@@ -508,34 +519,46 @@ main(){
 
 	case "$1" in
 	    --help)
+	    validate_no_extra_args "$@" || return $?
 	    print_help
 	    ;;
 
 	    --version)
+	    validate_no_extra_args "$@" || return $?
 	    print_version
 	    ;;
 
 	    --cpu)
-	    show_cpu
-	    ;;
+    	    validate_no_extra_args "$@" || return $?
+    	    show_cpu
+             ;;
 
 	    --memory)
+	    validate_no_extra_args "$@" || return $?
 	    get_memory_info
 	    ;;
 
 	    --disk)
+	    validate_no_extra_args "$@" || return $?
 	    get_disk_info
 	    ;;
 
 	    --processes)
+	    validate_no_extra_args "$@" || return $?
 	    get_process_info
 	    ;;
 
 	    --network)
-	    get_network_info "${2:-$NETWORK_HOST}"
+	    if [[ $# -gt 2 ]]; then
+        	 error "The '--network' option accepts at most one host argument."
+        	 return 2
+    	    fi
+
+	    get_network_info "${2-$NETWORK_HOST}"
 	    ;;
 
 	    --services)
+	    validate_no_extra_args "$@" || return $?
 	    get_service_info
 	    ;;
 

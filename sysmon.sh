@@ -5,6 +5,21 @@ set -euo pipefail
 readonly PROGRAM_NAME="sysmon"
 readonly VERSION="1.0.0"
 
+# Default configuration values
+readonly DEFAULT_CPU_THRESHOLD=80
+readonly DEFAULT_MEMORY_THRESHOLD=80
+readonly DEFAULT_DISK_THRESHOLD=80
+readonly DEFAULT_NETWORK_HOST="8.8.8.8"
+
+readonly -a DEFAULT_SERVICES=("ssh" "cron")
+
+CPU_THRESHOLD="$DEFAULT_CPU_THRESHOLD"
+MEMORY_THRESHOLD="$DEFAULT_MEMORY_THRESHOLD"
+DISK_THRESHOLD="$DEFAULT_DISK_THRESHOLD"
+NETWORK_HOST="$DEFAULT_NETWORK_HOST"
+SERVICES=("${DEFAULT_SERVICES[@]}")
+
+
 print_version(){
        	printf '%s  version  %s\n' "$PROGRAM_NAME" "$VERSION"
 }
@@ -216,10 +231,29 @@ show_cpu(){
 	printf '%s\n' '----------------'
 	printf 'Model			: %s\n' "$model"
 	printf 'Logical CPUs		: %s\n' "$logical_cpus"
-	printf 'CPU Utilization		: %s\n' "$utilization"
+	local status
+
+        status=$(check_threshold "$utilization" "$CPU_THRESHOLD")
+
+        printf 'CPU Utilization         : %s [%s]\n' "$utilization" "$status"
 	printf 'Load Average		: %s %s %s\n' "$load1" "$load5" "$load15"
 
 }
+
+
+check_threshold() {
+    local value="$1"
+    local threshold="$2"
+
+    if awk -v value="$value" -v threshold="$threshold" \
+        'BEGIN { exit !(value >= threshold) }'; then
+        printf 'WARNING\n'
+    else
+        printf 'OK\n'
+    fi
+}
+
+
 
 
 get_memory_info() {
@@ -251,7 +285,10 @@ get_memory_info() {
     printf 'Total Memory     : %.2f GB\n' "$(awk -v kb="$total_kb" 'BEGIN {printf "%.2f", kb/1024/1024}')"
     printf 'Used Memory      : %.2f GB\n' "$(awk -v kb="$used_kb" 'BEGIN {printf "%.2f", kb/1024/1024}')"
     printf 'Available Memory : %.2f GB\n' "$(awk -v kb="$available_kb" 'BEGIN {printf "%.2f", kb/1024/1024}')"
-    printf 'Memory Usage     : %s%%\n' "$usage_percent"
+    local status
+
+    status=$(check_threshold "$usage_percent" "$MEMORY_THRESHOLD")
+    printf 'Memory Usage     : %s%% [%s]\n' "$usage_percent" "$status"
 }
 
 
@@ -283,7 +320,13 @@ get_disk_info() {
     printf 'Size            : %s\n' "$size"
     printf 'Used            : %s\n' "$used"
     printf 'Available       : %s\n' "$available"
-    printf 'Usage           : %s\n' "$usage"
+    local usage_value
+    local status
+
+    usage_value="${usage%\%}"
+    status=$(check_threshold "$usage_value" "$DISK_THRESHOLD")
+
+    printf 'Usage           : %s [%s]\n' "$usage" "$status"
     printf 'Mount Point     : %s\n' "$mountpoint"
 }
 
@@ -342,7 +385,7 @@ get_service_info() {
         return 1
     fi
 
-    for service in "${services[@]}"; do
+    for service in "${SERVICES[@]}"; do
         state=$(systemctl is-active "$service" 2>/dev/null || true)
 
         if [[ -z "$state" ]]; then
@@ -353,6 +396,39 @@ get_service_info() {
     done
 }
 
+load_config() {
+    local config_file="${1:-sysmon.conf}"
+
+    if [[ ! -f "$config_file" ]]; then
+        return 0
+    fi
+
+    while IFS='=' read -r key value; do
+        [[ -z "$key" ]] && continue
+        [[ "$key" == \#* ]] && continue
+
+        value="${value%\"}"
+        value="${value#\"}"
+
+        case "$key" in
+            CPU_THRESHOLD)
+                CPU_THRESHOLD="$value"
+                ;;
+            MEMORY_THRESHOLD)
+                MEMORY_THRESHOLD="$value"
+                ;;
+            DISK_THRESHOLD)
+                DISK_THRESHOLD="$value"
+                ;;
+            NETWORK_HOST)
+                NETWORK_HOST="$value"
+                ;;
+            SERVICES)
+                read -r -a SERVICES <<< "$value"
+                ;;
+        esac
+    done < "$config_file"
+}
 
 
 
@@ -389,7 +465,7 @@ main(){
 	    ;;
 
 	    --network)
-	    get_network_info "${2:-8.8.8.8}"
+	    get_network_info "${2:-$NETWORK_HOST}"
 	    ;;
 
 	    --services)
@@ -410,5 +486,5 @@ main(){
 
        	 esac
 }
-
+load_config
 main "$@"
